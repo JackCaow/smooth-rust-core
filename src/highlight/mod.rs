@@ -11,10 +11,13 @@
 
 mod clike;
 mod data;
+mod lines;
 mod markdown;
 mod markup;
 mod shell;
 mod specs;
+
+pub use lines::{diff as parse_diff, highlight_lines, DiffRow, Line, RowKind};
 
 /// Token classes. Values are part of the C ABI (`smr_highlight_utf16`).
 #[repr(u8)]

@@ -278,3 +278,50 @@ fn large_input_is_fast() {
     assert!(tokens.len() > 50_000);
     assert!(elapsed.as_millis() < 2_000, "{} units took {elapsed:?}", code.len());
 }
+
+fn line_text(line: &super::Line) -> String { String::from_utf16_lossy(&line.text) }
+fn line_kind(line: &super::Line, text: &str) -> Option<Kind> {
+    let units = &line.text;
+    let needle = utf16(text);
+    let at = units.windows(needle.len()).position(|w| w == needle.as_slice())? as u32;
+    Some(line.tokens.iter().find(|t| t.start <= at && at < t.start + t.len).map(|t| t.kind).unwrap_or(Kind::None))
+}
+
+#[test]
+fn lines_keep_multiline_state_and_expand_tabs() {
+    let code = utf16("val a = 1 /* open\n\tstill */ val b\n\"\"\"x\nmore\"\"\"\n");
+    let lines = super::highlight_lines(&code, "kt", 4);
+    assert_eq!(lines.len(), 4);
+    assert_eq!(line_text(&lines[1]), "    still */ val b");
+    assert_eq!(line_kind(&lines[1], "still"), Some(Kind::Comment));
+    assert_eq!(line_kind(&lines[1], "val"), Some(Kind::KeywordDeclaration));
+    assert_eq!(line_kind(&lines[3], "more"), Some(Kind::String));
+}
+
+#[test]
+fn diff_rows_numbers_sides_and_word_changes() {
+    let patch = "diff --git a/A.kt b/A.kt\nindex 1..2 100644\n--- a/A.kt\n+++ b/A.kt\n@@ -10,4 +10,4 @@ class A {\n /* start\n-   old */ val x = 1\n+   new */ val x = 2\n \tfun f() = x\n\\ No newline at end of file\n";
+    let rows = super::parse_diff(&utf16(patch), "kt", 4);
+    use super::RowKind::*;
+    assert_eq!(rows.iter().map(|r| r.kind).collect::<Vec<_>>(), vec![Hunk, Context, Removed, Added, Context, Note]);
+    assert_eq!(line_text(&rows[0].line), "@@ -10,4 +10,4 @@ class A {");
+    assert_eq!(rows.iter().map(|r| r.number).collect::<Vec<_>>(), vec![None, Some(10), Some(11), Some(11), Some(12), None]);
+    // The comment opened on a context line continues on both sides.
+    assert_eq!(line_kind(&rows[2].line, "old"), Some(Kind::Comment));
+    assert_eq!(line_kind(&rows[3].line, "new"), Some(Kind::Comment));
+    assert_eq!(line_kind(&rows[3].line, "val"), Some(Kind::KeywordDeclaration));
+    assert_eq!(line_text(&rows[4].line), "    fun f() = x");
+    assert_eq!(line_kind(&rows[4].line, "f("), Some(Kind::FunctionDefinition));
+    // Word-level change covers the differing middle only.
+    let (s, l) = rows[3].changed.unwrap();
+    assert_eq!(String::from_utf16_lossy(&rows[3].line.text[s as usize..(s + l) as usize]), "new */ val x = 2");
+    let (s, l) = rows[2].changed.unwrap();
+    assert_eq!(String::from_utf16_lossy(&rows[2].line.text[s as usize..(s + l) as usize]), "old */ val x = 1");
+}
+
+#[test]
+fn diff_word_change_is_minimal_for_small_edits() {
+    let rows = super::parse_diff(&utf16("@@ -1 +1 @@\n-let total = price * 2\n+let total = price * 3\n"), "js", 0);
+    let (s, l) = rows[2].changed.unwrap();
+    assert_eq!(String::from_utf16_lossy(&rows[2].line.text[s as usize..(s + l) as usize]), "3");
+}
