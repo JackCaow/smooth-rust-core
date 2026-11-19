@@ -135,6 +135,56 @@ pub unsafe extern "C" fn smr_buffer_free(buffer: *mut SmrBuffer) {
     }
     *buffer = SmrBuffer::default();
 }
+fn owned(bytes: Vec<u8>) -> SmrBuffer {
+    let owner = Box::new(bytes);
+    SmrBuffer { data: owner.as_ptr(), len: owner.len(), owner: Box::into_raw(owner).cast() }
+}
+
+/// Highlights UTF-16 `source` written in `language` (UTF-8 fence tag, extension
+/// or file name). The result is `SMH1`, a token count and `(start, length, kind)`
+/// little-endian u32 records in UTF-16 units. Unknown languages return zero tokens.
+#[no_mangle]
+pub unsafe extern "C" fn smr_highlight_utf16(
+    source: *const u16, length: usize, language: *const u8, language_length: usize, result: *mut SmrBuffer,
+) -> i32 {
+    if result.is_null() { return 1 }
+    *result = SmrBuffer::default();
+    if (length != 0 && source.is_null()) || (language_length != 0 && language.is_null()) { return 1 }
+    if length > MAX_UNITS { return 2 }
+    let attempt = catch_unwind(AssertUnwindSafe(|| {
+        let units = if length == 0 { &[][..] } else { std::slice::from_raw_parts(source, length) };
+        let name = if language_length == 0 { &[][..] } else { std::slice::from_raw_parts(language, language_length) };
+        let tokens = crate::highlight::highlight(units, std::str::from_utf8(name).unwrap_or(""));
+        let mut bytes = Vec::with_capacity(8 + tokens.len() * 12);
+        bytes.extend_from_slice(b"SMH1");
+        word(&mut bytes, tokens.len() as u32);
+        for token in tokens {
+            word(&mut bytes, token.start);
+            word(&mut bytes, token.len);
+            word(&mut bytes, token.kind as u32);
+        }
+        bytes
+    }));
+    match attempt {
+        Ok(bytes) => { *result = owned(bytes); 0 }
+        Err(_) => 3,
+    }
+}
+
+/// Canonical UTF-8 language name for a fence tag, extension or file name; an
+/// empty buffer when the highlighter does not support it.
+#[no_mangle]
+pub unsafe extern "C" fn smr_highlight_language(language: *const u8, language_length: usize, result: *mut SmrBuffer) -> i32 {
+    if result.is_null() { return 1 }
+    *result = SmrBuffer::default();
+    if language_length != 0 && language.is_null() { return 1 }
+    let name = if language_length == 0 { &[][..] } else { std::slice::from_raw_parts(language, language_length) };
+    match crate::highlight::normalize_language(std::str::from_utf8(name).unwrap_or("")) {
+        Some(canonical) => { *result = owned(canonical.as_bytes().to_vec()); 0 }
+        None => 0,
+    }
+}
+
 fn word(out: &mut Vec<u8>, n: u32) {
     out.extend_from_slice(&n.to_le_bytes());
 }

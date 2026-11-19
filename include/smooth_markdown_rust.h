@@ -45,6 +45,11 @@ int32_t smr_parse_inline_utf16(const uint16_t *,size_t,uint32_t,const uint8_t *,
 int32_t smr_render_ast_utf16(const uint8_t *,size_t,uint32_t,SmrBuffer *);
 int32_t smr_export_html_utf16(const uint16_t *,size_t,uint32_t,SmrBuffer *);
 void smr_buffer_free(SmrBuffer *buffer);
+/* Syntax highlighting. Language is a UTF-8 fence tag, extension or file name.
+   Result: "SMH1", u32 count, then count x (u32 start, u32 length, u32 kind) in UTF16 units. */
+int32_t smr_highlight_utf16(const uint16_t *source, size_t length, const uint8_t *language, size_t language_length, SmrBuffer *result);
+/* Canonical UTF-8 language name, or an empty buffer when unsupported. */
+int32_t smr_highlight_language(const uint8_t *language, size_t language_length, SmrBuffer *result);
 #ifdef __cplusplus
 }
 #endif

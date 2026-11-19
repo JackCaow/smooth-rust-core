@@ -1,0 +1,16 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source manifest
+        run: shasum -a 256 --check SOURCE.sha256
+      - name: Tests
+        run: cargo test --locked
+      - name: Parser and C ABI baseline
+        run: cargo test --release --locked --test block_contract parser_and_c_abi_baseline -- --ignored --nocapture
